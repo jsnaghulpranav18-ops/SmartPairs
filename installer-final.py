@@ -1,13 +1,8 @@
-import os
-import sys
-import ctypes
-import shutil
-
-# Updated with your customized pop-up window text
-EXTENSION_CODE = """import tkinter.messagebox as messagebox
+import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 
 class SmartPairs:
+    # Adds the secured menu option under the Options tab
     menudefs = [
         ('options', [
             ('AmpXD Override', '<<toggle-ampxd-mode>>'),
@@ -27,9 +22,13 @@ class SmartPairs:
 
         self.pairs = {'(': ')', '[': ']', '{': '}', '"': '"', "'": "'"}
         
+        # Bind Menu and Key events
         self.text.bind('<<toggle-ampxd-mode>>', self.toggle_mode)
         self.text.bind("<KeyPress-Up>", self.history_up)
         self.text.bind("<KeyPress-Down>", self.history_down)
+        
+        # Bind Ctrl + / for VS Code Style Toggling
+        self.text.bind("<Control-slash>", self.toggle_comment)
         
         for opening_char in self.pairs.keys():
             self.text.bind(f"<Key-{opening_char}>", self.handle_keypress)
@@ -72,7 +71,7 @@ class SmartPairs:
         if not self.active:
             return None
 
-        all_lines = self.text.get("1.0", "end-1c").split("\\n")
+        all_lines = self.text.get("1.0", "end-1c").split("\n")
         self.history = [line.strip() for line in all_lines if line.strip()]
         
         if not self.history:
@@ -102,65 +101,51 @@ class SmartPairs:
             self.text.insert("insert linestart", self.current_working_line)
             
         return "break"
-"""
 
-CONFIG_TEXT = "\n\n[SmartPairs]\nenable=1\n[SmartPairs_cfgBindings]\ntoggle-ampxd-mode=\n"
+    def toggle_comment(self, event=None):
+        if not self.active:
+            return None
 
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
+        try:
+            # Check for selected text lines
+            start_idx = self.text.index("sel.first")
+            end_idx = self.text.index("sel.last")
+        except Exception:
+            # Default to active single line if nothing is selected
+            start_idx = self.text.index("insert linestart")
+            end_idx = self.text.index("insert lineend")
 
-def main():
-    # Force window privilege elevation
-    if not is_admin():
-        print("Requesting Administrator Permissions...")
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-        sys.exit()
+        start_line = int(start_idx.split("."))
+        end_line = int(end_idx.split("."))
+        
+        # Adjust boundary if selection snaps to the very beginning of the next row
+        if end_line > start_line and end_idx.split(".")[1] == "0":
+            end_line -= 1
 
-    print("===================================================")
-    print("             AmpXD Override Auto-Installer         ")
-    print("===================================================")
-    
-    try:
-        import idlelib
-        idlelib_path = os.path.dirname(idlelib.__file__)
-        print(f"✓ Found target folder: {idlelib_path}")
-    except ImportError:
-        print("❌ Error: Could not locate IDLE path automatically.")
-        input("\nPress Enter to exit...")
-        return
+        # Check if all highlighted lines are already commented out
+        all_commented = True
+        for line_num in range(start_line, end_line + 1):
+            line_txt = self.text.get(f"{line_num}.0", f"{line_num}.end").lstrip()
+            if line_txt and not line_txt.startswith("#"):
+                all_commented = False
+                break
 
-    script_file_path = os.path.join(idlelib_path, "SmartPairs.py")
-    config_file_path = os.path.join(idlelib_path, "config-extensions.def")
-
-    # Deploy extension
-    try:
-        with open(script_file_path, "w", encoding="utf-8") as f:
-            f.write(EXTENSION_CODE)
-        print("✓ SmartPairs.py created successfully with perfect code formatting.")
-    except Exception as e:
-        print(f"❌ Error: Failed to write file. {e}")
-        input("\nPress Enter to exit...")
-        return
-
-    # Deploy configurations safely
-    with open(config_file_path, "r", encoding="utf-8") as f:
-        config_content = f.read()
-
-    if "[SmartPairs]" in config_content:
-        print("✓ Configurations are already active inside IDLE.")
-    else:
-        shutil.copyfile(config_file_path, config_file_path + ".bak")
-        with open(config_file_path, "a", encoding="utf-8") as f:
-            f.write(CONFIG_TEXT)
-        print("✓ Registered configurations inside config-extensions.def (Backup created).")
-
-    print("\n===================================================")
-    print("Installation Complete! Please close and restart IDLE.")
-    print("===================================================")
-    input("\nPress Enter to finish...")
-
-if __name__ == "__main__":
-    main()
+        # Apply action to lines
+        for line_num in range(start_line, end_line + 1):
+            line_txt = self.text.get(f"{line_num}.0", f"{line_num}.end")
+            
+            if all_commented:
+                # Remove comment marker safely
+                lstripped = line_txt.lstrip()
+                leading_spaces = len(line_txt) - len(lstripped)
+                if lstripped.startswith("#"):
+                    rem_len = 2 if lstripped.startswith("# ") else 1
+                    self.text.delete(f"{line_num}.{leading_spaces}", f"{line_num}.{leading_spaces + rem_len}")
+            else:
+                # Insert comment marker respecting indentation limits
+                if line_txt.strip():
+                    lstripped = line_txt.lstrip()
+                    leading_spaces = len(line_txt) - len(lstripped)
+                    self.text.insert(f"{line_num}.{leading_spaces}", "# ")
+                    
+        return "break"
