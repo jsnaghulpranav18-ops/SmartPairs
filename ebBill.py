@@ -18,3 +18,5 @@ else:
         )
 
     print(f"Total Electricity Bill: ₹{total_bill:.2f}")
+    
+    # 27.7.26 notes: gotta change the values of the constants
